@@ -147,11 +147,6 @@ If you use this extension in your research, please cite:
   note = {Research extension for PyTorch geophysical simulations}
 }
 ```
-
-## Related Publications
-
-- [Add relevant papers here when published]
-
 ## License
 
 MIT License - see LICENSE file for details.
