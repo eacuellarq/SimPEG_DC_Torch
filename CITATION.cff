@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: extension
+title: "SimPEG DC Resistivity with PyTorch Backend"
+abstract: "A PyTorch implementation of SimPEG's DC resistivity simulations allow automatic differentiation."
+authors:
+  - family-names: "Edwin Cuellar"
+    email: "eaqm1228@hotmail.com"
+
+repository-code: "https://github.com/eacuellarq/simpeg-dc-pytorch"
+url: "https://github.com/eacuellarq/simpeg-dc-pytorch"
+license: MIT
+keywords:
+  - geophysics
+  - pytorch
+  - simpeg
+  - dc-resistivity
+  - automatic-differentiation
+  - gpu
+  - geophysical-inversion
+version: 0.1.0
+date-released: 2025-08-01
