@@ -139,12 +139,21 @@ This is research extension under active development. Please report issues or con
 If you use this extension in your research, please cite:
 
 ```bibtex
-@extension{simpeg_dc_pytorch,
+@article{ADERT,
+  title={ADERT: Automatic differentiation-based electrical resistivity tomography inversion},
+  author={Rinc{\'o}n, Felipe and Aleardi, Mattia and Cuellar, Edwin and Berti, Sean and Tognarelli, Andrea and Stucchi, Eusebio},
+  journal={Geophysical Journal International},
+  year={2025},
+  note={Submitted for publication}
+}
+
+@software{simpeg_DC_pytorch,
+  author = {Cuellar, Edwin},
   title = {SimPEG DC Resistivity with PyTorch Backend},
-  author = {Edwin Cuellar},
   year = {2025},
+  publisher = {GitHub},
   url = {https://github.com/eacuellarq/simpeg-dc-pytorch},
-  note = {Research extension for PyTorch geophysical simulations}
+  note = {PyTorch implementation of ADERT framework}
 }
 ```
 ## License
