@@ -139,13 +139,6 @@ This is research extension under active development. Please report issues or con
 If you use this extension in your research, please cite:
 
 ```bibtex
-@article{ADERT,
-  title={ADERT: Automatic differentiation-based electrical resistivity tomography inversion},
-  author={Rinc{\'o}n, Felipe and Aleardi, Mattia and Cuellar, Edwin and Berti, Sean and Tognarelli, Andrea and Stucchi, Eusebio},
-  journal={Geophysical Journal International},
-  year={2025},
-  note={Submitted for publication}
-}
 
 @software{simpeg_DC_pytorch,
   author = {Cuellar, Edwin},
