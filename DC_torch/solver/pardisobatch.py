@@ -12,14 +12,13 @@ Author: Edwin Cuellar (eacuellarq@eafit.edu.co)
 import os
 import torch
 import numpy as np
-from scipy.sparse import csr_matrix, random
-from scipy.sparse.linalg import splu
-import time
-from pymatsolver import Pardiso
-import psutil  # Para monitorear memoria
+from scipy.sparse import csr_matrix
 
-# Importar las implementaciones
-from solver.superLUbatch import SuperLUBatch
+try:
+    from pymatsolver import Pardiso
+except ImportError:
+    from pydiso.mkl_solver import MKLPardisoSolver as Pardiso
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 # Copiar las clases PardisoBatch y PardisoBatchAlt del código original
@@ -42,13 +41,16 @@ class PardisoBatch(torch.autograd.Function):
         
         # Create Pardiso solver
         solver = Pardiso(csr_A)
-        
+        # pymatsolver wraps pydiso: solver.solver is MKLPardisoSolver
+        # pydiso direct: solver IS MKLPardisoSolver
+        mkl = getattr(solver, 'solver', solver)
+
         B_np = B.detach().numpy()
-        X_np = solver.solver.solve(B_np)
+        X_np = mkl.solve(B_np)
         X = torch.from_numpy(X_np).to(dtype=B.dtype)
         
         # Save everything for backward
-        ctx.solver = solver
+        ctx.mkl = mkl
         ctx.rows_np = rows_np
         ctx.cols_np = cols_np
         ctx.X = X
@@ -58,17 +60,17 @@ class PardisoBatch(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        solver = ctx.solver
+        mkl = ctx.mkl
         rows_np = ctx.rows_np
         cols_np = ctx.cols_np
         X = ctx.X
         shape = ctx.shape
-        
+
         go_np = grad_output.detach().numpy()
 
         # Reutiliza la factorización existente con transpose=True
         # en lugar de crear un nuevo solver para A^T
-        grad_B_np = solver.solver.solve(go_np, transpose=True)
+        grad_B_np = mkl.solve(go_np, transpose=True)
         grad_B = torch.from_numpy(grad_B_np).to(dtype=grad_output.dtype)
         
         # Gradient with respect to A
