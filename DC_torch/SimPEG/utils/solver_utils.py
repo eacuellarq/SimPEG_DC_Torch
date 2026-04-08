@@ -156,17 +156,22 @@ def SolverWrapD(fun, factorize=True, checkAccuracy=True, accuracyTol=1e-6, name=
                 # Route through batch solver with single RHS unsqueezed
                 b_t = torch.tensor(b, dtype=SimpegConfig().dtype)
                 device = SimpegConfig().device
+                solver_name = SimpegConfig().solver
 
-                if device != "cpu":
+                if device != "cpu" and solver_name == "dense_gpu":
+                    A_dense = self.A.to_dense().to(device)
+                    b_t = b_t.to(device)
+                    X = torch.linalg.solve(A_dense, b_t)
+                elif device != "cpu":
                     from solver.pcgsolverGPU import PCGSolverGPU
                     b_t = b_t.to(device).unsqueeze(1)
                     A_gpu = self.A.to(device) if not self.A.is_cuda else self.A
                     X = PCGSolverGPU.apply(A_gpu, b_t).squeeze(1)
                 else:
                     b_t = b_t.unsqueeze(1)
-                    if SimpegConfig().solver == "superlu":
+                    if solver_name == "superlu":
                         from solver.superLUbatch import SuperLUBatch as solver_batch
-                    elif SimpegConfig().solver == "pardiso":
+                    elif solver_name == "pardiso":
                         from solver.pardisobatch import PardisoBatch as solver_batch
                     X = solver_batch.apply(self.A, b_t).squeeze(1)
             elif factorize:
@@ -178,23 +183,22 @@ def SolverWrapD(fun, factorize=True, checkAccuracy=True, accuracyTol=1e-6, name=
                 b = b.astype(type(b[0, 0]))
            
             if self.torch_active:
-                b = torch.tensor(b, dtype=SimpegConfig().dtype).to(SimpegConfig().device)
-                
-                if SimpegConfig().device != "cpu":
+                device = SimpegConfig().device
+                solver_name = SimpegConfig().solver
+                b = torch.tensor(b, dtype=SimpegConfig().dtype).to(device)
+
+                if device != "cpu" and solver_name == "dense_gpu":
+                    A_dense = self.A.to_dense().to(device)
+                    X = torch.linalg.solve(A_dense, b)
+                elif device != "cpu":
                     from solver.pcgsolverGPU import PCGSolverGPU
-                    A_gpu = self.A.to(SimpegConfig().device) if not self.A.is_cuda else self.A
+                    A_gpu = self.A.to(device) if not self.A.is_cuda else self.A
                     X = PCGSolverGPU.apply(A_gpu, b)
-
-
                 else:
-
-                    if SimpegConfig().solver == "superlu":
-                  
+                    if solver_name == "superlu":
                         from solver.superLUbatch import SuperLUBatch as solver_batch
-                    elif SimpegConfig().solver == "pardiso":
-
+                    elif solver_name == "pardiso":
                         from solver.pardisobatch import PardisoBatch as solver_batch
-
                     X = solver_batch.apply(self.A, b)
                 
             else:

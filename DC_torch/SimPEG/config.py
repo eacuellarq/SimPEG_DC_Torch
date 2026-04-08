@@ -52,6 +52,6 @@ class SimpegConfig:
         if not isinstance(value, str):
             raise TypeError("solver must be a string")
         value_lower = value.lower()
-        if value_lower not in ('superlu', 'pardiso', 'pcg_gpu'):
-            raise ValueError("solver must be 'superlu', 'pardiso', or 'pcg_gpu'")
+        if value_lower not in ('superlu', 'pardiso', 'pcg_gpu', 'dense_gpu'):
+            raise ValueError("solver must be 'superlu', 'pardiso', 'pcg_gpu', or 'dense_gpu'")
         self._solver = value_lower
