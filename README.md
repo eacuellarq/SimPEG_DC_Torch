@@ -108,8 +108,66 @@ The implementation modifies the following SimPEG components:
 
 - **SimPEG Core**: Complete replacement with PyTorch tensor operations
 - **Discretize**: Selective replacement preserving compiled extensions
-- **Custom Solvers**: Pardiso and SuperLU adaptations (only CPU) but also you can create a custom solver with GPU if you want and use with SimPEG.   
+- **Custom Solvers**: Four solver backends for the linear systems arising from DC resistivity (see below)
 - **Utilities**: Enhanced simulation utilities in `utils/` module
+
+## Solvers
+
+The repository includes four solvers, each implemented as a `torch.autograd.Function` so that gradients flow through the linear solve:
+
+| Solver | Device | Strategy | Backward pass |
+|--------|--------|----------|---------------|
+| **SuperLU** | CPU | Sparse LU factorization (`scipy.sparse.linalg.splu`) | Conjugate-transpose solve reusing LU factors |
+| **Pardiso** | CPU | Intel MKL Pardiso via `pymatsolver` | Reuses existing LDL^T factorization with `transpose=True` (no refactorization of A^T) |
+| **PCG-GPU** | CUDA | Jacobi-preconditioned Conjugate Gradient with `torch.sparse.mm` | Same PCG (A is SPD, so A^T = A) |
+| **Dense-GPU** | CUDA | Densifies A and solves with `torch.linalg.solve` | Native PyTorch autograd through `torch.linalg.solve` |
+
+### Solver routing
+
+Routing is handled automatically by `SolverWrapD` based on the `SimpegConfig` singleton:
+
+- `device="cpu"` + `solver="superlu"` -> **SuperLU**
+- `device="cpu"` + `solver="pardiso"` -> **Pardiso**
+- `device="cuda"` -> **PCG-GPU** (via `SolverWrapD`) or **Dense-GPU** (manual integration in benchmarks)
+
+## Benchmark: 2.5D DC Resistivity (forward + backward)
+
+Total time (forward + backward) relative to SuperLU, measured on 2D resistivity models with `nky=11` wavenumbers, dipole-dipole survey:
+
+| Params | SuperLU | Pardiso | PCG-GPU | Dense-GPU |
+|-------:|--------:|--------:|--------:|----------:|
+| 100 | 1.00x | 0.85x | 0.56x | 1.72x |
+| 500 | 1.00x | 0.90x | 0.76x | 1.27x |
+| 1000 | 1.00x | 0.97x | 0.64x | 1.10x |
+| 2010 | 1.00x | 0.97x | 0.46x | 0.58x |
+| 3000 | 1.00x | 1.07x | 0.33x | 0.39x |
+| 4000 | 1.00x | 1.06x | 0.23x | 0.25x |
+| 5000 | 1.00x | 1.08x | N/A | N/A |
+| 6000 | 1.00x | 1.08x | N/A | N/A |
+| 8000 | 1.00x | 1.07x | N/A | N/A |
+| 9000 | 1.00x | 1.11x | N/A | N/A |
+| 10000 | 1.00x | 1.04x | N/A | N/A |
+
+> Values > 1.0 mean faster than SuperLU; values < 1.0 mean slower.
+
+### Analysis
+
+- **SuperLU** is the most robust baseline for 2D problems. Sparse LU factorization scales well and has minimal overhead per wavenumber.
+- **Pardiso** matches SuperLU closely. Its LDL^T backward reuse gives a significant speedup on the backward pass alone (6x-27x), but the overall forward+backward time is similar because the forward solve is comparable.
+- **PCG-GPU** is slower than CPU solvers for 2D problems. The iterative CG runs once per wavenumber (11 solves), and the per-iteration overhead of sparse-dense GPU operations dominates for the relatively small systems that 2D meshes produce. For large 3D systems (nC > 50k), GPU parallelism is expected to dominate.
+- **Dense-GPU** works only for small meshes. Densifying the sparse system matrix causes VRAM to grow as O(n^2), making it infeasible beyond ~4000 parameters on a typical 8GB GPU. When it fits in memory, `torch.linalg.solve` is competitive for very small systems but quickly falls behind.
+
+### Other solvers worth exploring (not implemented here)
+
+There are several GPU-native sparse direct and iterative solvers that could outperform the options above for large 3D problems:
+
+- **cuSOLVER** (`cusolverSpcsrlsvlu`, `cusolverSpcsrlsvchol`): NVIDIA's sparse direct solvers, accessible via CuPy. Sparse LU/Cholesky directly on GPU without densification.
+- **CHOLMOD on GPU**: Sparse Cholesky factorization with GPU acceleration (SuiteSparse). Ideal for SPD systems like DC resistivity.
+- **AMGX**: NVIDIA's algebraic multigrid solver. Excellent for large-scale elliptic PDEs, which is exactly what DC resistivity produces.
+- **PETSc + GPU**: Distributed sparse solvers with GPU backends (CUDA, HIP). Overkill for single-GPU but powerful for multi-GPU clusters.
+- **Sparse QR on GPU**: For non-symmetric systems or least-squares formulations.
+
+These solvers are not integrated in this repository because the focus is on demonstrating differentiable DC resistivity with PyTorch autograd. The solver interface (`torch.autograd.Function` with `forward`/`backward`) is modular enough that any of the above could be plugged in following the same pattern as `SuperLUBatch` or `PardisoBatch`.
 
 ## Examples
 
@@ -118,17 +176,18 @@ See the `examples/` directory for complete working examples:
 - `fwd_dcr_plane_2d.ipynb`: DC resistivity forward modeling in 2D plane geometry
 - `fwd_dcr_topo_2d.ipynb`: DC resistivity forward modeling with 2D topography
 - `fwd_dcr_topo_3d.ipynb`: DC resistivity forward modeling with 3D topography
+- `benchmark_solvers_dc.py`: Full benchmark script (generates plots + Excel export)
 
 ## Performance
 
-Preliminary benchmarks show:
+- Exact gradients via autograd, replacing SimPEG's finite-difference Jacobian approximation for DC 2.5D and 3D.
+- Memory-optimized forward: solver factorizations are released after the forward pass when using autograd (backward is handled by the computation graph, not by stored Ainv objects).
 
-  - Faster and better gradients than aproximation of SimPEG vanilla for Direct Current simulations in 2.5D and 3D.
 ## Limitations
 
 - Currently supports DC resistivity simulations only
-- GPU is compatible but don't have a good solver for that
-- Some advanced SimPEG features may not be fully compatible because this development was in SimPEG 0.18.1
+- GPU solvers (PCG-GPU, Dense-GPU) are not competitive for 2D problems due to small system sizes; expected advantage for 3D with nC > 50k
+- Some advanced SimPEG features may not be fully compatible because this development was based on SimPEG 0.18.1
 
 ## Contributing
 
