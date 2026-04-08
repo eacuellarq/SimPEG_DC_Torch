@@ -44,7 +44,7 @@ class SimpegConfig:
 
     @property
     def solver(self):
-        """Devuelve el solver en uso: 'superlu' o 'pardiso'."""
+        """Devuelve el solver en uso: 'superlu', 'pardiso' o 'pcg_gpu'."""
         return self._solver
 
     @solver.setter
@@ -52,6 +52,6 @@ class SimpegConfig:
         if not isinstance(value, str):
             raise TypeError("solver must be a string")
         value_lower = value.lower()
-        if value_lower not in ('superlu', 'pardiso'):
-            raise ValueError("solver must be 'superlu' or 'pardiso'")
+        if value_lower not in ('superlu', 'pardiso', 'pcg_gpu'):
+            raise ValueError("solver must be 'superlu', 'pardiso', or 'pcg_gpu'")
         self._solver = value_lower

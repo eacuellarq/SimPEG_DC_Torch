@@ -1,3 +1,12 @@
+"""
+Fields — PyTorch-compatible field storage for SimPEG simulations
+=================================================================
+Extended to support torch.Tensor storage with device-aware initialization
+and in-place assignment that preserves autograd computation graphs.
+
+Author: Edwin Cuellar (eacuellarq@eafit.edu.co)
+"""
+
 import numpy as np
 import torch
 from .simulation import BaseSimulation, BaseTimeSimulation

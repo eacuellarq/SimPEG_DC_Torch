@@ -159,8 +159,8 @@ class SimulationDCResistivity:
                                 (torch.Tensor(mesh.gridCC[:,1]) < 0.0) &
                                 (torch.Tensor(mesh.gridCC[:,1]) > -self.surveyinfo["depth"])).to(SimpegConfig().device)
 
-                m[idx_model] = self.model.flatten()
-                
+                m[idx_model] = self.model.flatten().to(device=m.device, dtype=m.dtype)
+
                 m = m.log().flatten()
 
             else:

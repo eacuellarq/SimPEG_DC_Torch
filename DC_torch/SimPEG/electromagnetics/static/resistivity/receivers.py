@@ -191,8 +191,9 @@ class BaseRx(BaseSimPEGRx):
             cols = P.col
             data = P.data
 
-            indices = torch.tensor(np.vstack((rows, cols)), dtype=torch.long)
-            values = torch.tensor(data, dtype=SimpegConfig().dtype)
+            device = SimpegConfig().device
+            indices = torch.tensor(np.vstack((rows, cols)), dtype=torch.long, device=device)
+            values = torch.tensor(data, dtype=SimpegConfig().dtype, device=device)
             P = torch.sparse_coo_tensor(indices=indices, 
                                 values=values,
                                 size=P.shape, dtype=SimpegConfig().dtype).to(SimpegConfig().device).coalesce()

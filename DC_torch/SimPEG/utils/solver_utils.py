@@ -1,3 +1,16 @@
+"""
+Solver Utilities — PyTorch-aware wrappers for direct/iterative solvers
+======================================================================
+Extended SolverWrapD to route torch sparse matrices through custom
+autograd Functions (SuperLUBatch, PardisoBatch, PCGSolverGPU) while
+preserving backward differentiability.
+
+Memory management: clean() now releases the stored system matrix reference,
+preventing accumulation when solver objects are retained across ky solves.
+
+Author: Edwin Cuellar (eacuellarq@eafit.edu.co)
+"""
+
 import numpy as np
 import torch
 from scipy.sparse import linalg
@@ -139,10 +152,25 @@ def SolverWrapD(fun, factorize=True, checkAccuracy=True, accuracyTol=1e-6, name=
             if b.dtype is np.dtype("O"):
                 b = b.astype(type(b[0]))
 
-            if factorize:
-                # X = 
+            if self.torch_active:
+                # Route through batch solver with single RHS unsqueezed
+                b_t = torch.tensor(b, dtype=SimpegConfig().dtype)
+                device = SimpegConfig().device
+
+                if device != "cpu":
+                    from solver.pcgsolverGPU import PCGSolverGPU
+                    b_t = b_t.to(device).unsqueeze(1)
+                    A_gpu = self.A.to(device) if not self.A.is_cuda else self.A
+                    X = PCGSolverGPU.apply(A_gpu, b_t).squeeze(1)
+                else:
+                    b_t = b_t.unsqueeze(1)
+                    if SimpegConfig().solver == "superlu":
+                        from solver.superLUbatch import SuperLUBatch as solver_batch
+                    elif SimpegConfig().solver == "pardiso":
+                        from solver.pardisobatch import PardisoBatch as solver_batch
+                    X = solver_batch.apply(self.A, b_t).squeeze(1)
+            elif factorize:
                 X = self.solver.solve(b, **self.kwargs)
-               
             else:
                 X = fun(self.A, b, **self.kwargs)
         else:  # Multiple RHSs
@@ -153,9 +181,9 @@ def SolverWrapD(fun, factorize=True, checkAccuracy=True, accuracyTol=1e-6, name=
                 b = torch.tensor(b, dtype=SimpegConfig().dtype).to(SimpegConfig().device)
                 
                 if SimpegConfig().device != "cpu":
-
-                    A_dense = self.A.to_dense()
-                    X = torch.linalg.solve(A_dense, b)
+                    from solver.pcgsolverGPU import PCGSolverGPU
+                    A_gpu = self.A.to(SimpegConfig().device) if not self.A.is_cuda else self.A
+                    X = PCGSolverGPU.apply(A_gpu, b)
 
 
                 else:
@@ -190,7 +218,8 @@ def SolverWrapD(fun, factorize=True, checkAccuracy=True, accuracyTol=1e-6, name=
 
     def clean(self):
         if factorize and hasattr(self, 'solver') and hasattr(self.solver, "clean"):
-            return self.solver.clean()
+            self.solver.clean()
+        self.A = None
 
     return type(
         name if name is not None else fun.__name__,

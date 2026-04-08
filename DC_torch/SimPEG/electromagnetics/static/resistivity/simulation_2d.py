@@ -1,8 +1,26 @@
+"""
+2.5D DC Resistivity Simulation with PyTorch Autograd Support
+=============================================================
+Extends SimPEG's BaseDCSimulation2D with differentiable forward modeling
+using PyTorch sparse tensors and custom autograd solvers (SuperLU, Pardiso,
+PCG-GPU, Dense-GPU).
+
+Key modifications over vanilla SimPEG:
+  - Torch-aware getA(): builds sparse system matrix on GPU/CPU with autograd
+    graph connected through MeSigma/MnSigma mass matrices.
+  - Cached scipy->torch conversions: _Grad_cached, _gradT, _AvgBC_torch
+    avoid repeated conversions across ky wavenumbers.
+  - Memory-efficient fields(): releases Ainv solver objects after forward
+    when using torch autograd (backward handled by autograd graph, not Jtvec).
+  - Dual boundary condition cleanup: scipy _AvgBC freed after torch conversion.
+
+Author: Edwin Cuellar (eacuellarq@eafit.edu.co)
+"""
+
 import numpy as np
 from scipy.optimize import minimize
 import warnings
 import torch
-import concurrent.futures
 import os
 from ....utils import (
     mkvc,
@@ -206,53 +224,23 @@ class BaseDCSimulation2D(BaseElectricalPDESimulation):
         
         f._quad_weights = self._quad_weights
         solution_type = self._solutionType
-        # import discretize.utils.matrix_utils as mu
-        # current_framework = mu._FRAMEWORK
-        def process_ky(iky_ky):
-            # import discretize.utils.matrix_utils as thread_mu
-            # thread_mu._FRAMEWORK = current_framework
-            iky, ky = iky_ky
-            A = self.getA(ky)
-            solver = self.solver(A, **self.solver_opts)
-            RHS = self.getRHS(ky)
-            u = solver * RHS
-            return iky, u, solver
 
-        # Paralelización del bucle
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            # Usamos ThreadPoolExecutor para evitar copia de memoria
-            futures = []
-            for iky, ky in enumerate(kys):
-                futures.append(executor.submit(process_ky, (iky, ky)))
-            
-            # Recolectar resultados
-            for future in concurrent.futures.as_completed(futures):
-                iky, u, solver = future.result()
-                f[:,solution_type, iky] = u
-                self.Ainv[iky] = solver  # Guardar solver para uso posterior
+        for iky, ky in enumerate(kys):
+            A = self.getA(ky)
+            self.Ainv[iky] = self.solver(A, **self.solver_opts)
+            RHS = self.getRHS(ky)
+            u = self.Ainv[iky] * RHS
+            f[:, solution_type, iky] = u
+
+        # When using torch autograd, Ainv is not needed for backward
+        # (autograd graph handles it). Release solver objects + stored matrices.
+        if SimpegConfig().torch_is_active:
+            for iky in range(self.nky):
+                if self.Ainv[iky] is not None:
+                    self.Ainv[iky].clean()
+                    self.Ainv[iky] = None
 
         return f
-        # for iky, ky in enumerate(kys):
-
-        #     A = self.getA(ky)
-
-        #     if self.Ainv[iky] is not None:
-        #         self.Ainv[iky].clean()
-
-        #     self.Ainv[iky] = self.solver(A, **self.solver_opts)
-        #     RHS = self.getRHS(ky)
-            
-        #     u = self.Ainv[iky] * RHS
-            
-        #     # Free memory immediately after solver operation
-        #     if SimpegConfig().torch_is_active and SimpegConfig().device != "cpu":
-        #         if hasattr(self.Ainv[iky], 'A') and isinstance(self.Ainv[iky].A, torch.Tensor):
-        #             # Clear any cached dense matrices in solver
-        #             torch.cuda.empty_cache()
-            
-        #     f[:, self._solutionType, iky] = u
-        
-        # return f
 
     def fields_to_space(self, f, y=0.0):
         f_fwd = self.fieldsPair_fwd(self)
@@ -730,31 +718,25 @@ class Simulation2DNodal(BaseDCSimulation2D):
 
         MnSigma = self.MnSigma
 
-        Grad = self.mesh.nodal_gradient
-        # Move to GPU if torch is active and using CUDA
-        if SimpegConfig().torch_is_active and isinstance(Grad, torch.Tensor) and SimpegConfig().device != "cpu":
-            Grad = Grad.cuda()
-
-
-        if SimpegConfig().torch_is_active and not isinstance(Grad, torch.Tensor):
-            device = SimpegConfig().device
-            coo_mat = Grad.tocoo()
-            row = torch.tensor(coo_mat.row, dtype=torch.long, device=device)
-            col = torch.tensor(coo_mat.col, dtype=torch.long, device=device)
-            values = torch.tensor(coo_mat.data, dtype=SimpegConfig().dtype, device=device) 
-
-            indices = torch.stack([row, col], dim=0)
-
-            forma = coo_mat.shape
-            Grad = torch.sparse_coo_tensor(indices, values, forma, device=device, dtype=SimpegConfig().dtype)
-                       
-
-        if self._gradT is None:
+        # Cache Grad and GradT to avoid repeated scipy→torch conversions
+        if getattr(self, '_Grad_cached', None) is None:
+            Grad = self.mesh.nodal_gradient
+            if SimpegConfig().torch_is_active and not isinstance(Grad, torch.Tensor):
+                device = SimpegConfig().device
+                coo_mat = Grad.tocoo()
+                row = torch.tensor(coo_mat.row, dtype=torch.long, device=device)
+                col = torch.tensor(coo_mat.col, dtype=torch.long, device=device)
+                values = torch.tensor(coo_mat.data, dtype=SimpegConfig().dtype, device=device)
+                indices = torch.stack([row, col], dim=0)
+                Grad = torch.sparse_coo_tensor(indices, values, coo_mat.shape, device=device, dtype=SimpegConfig().dtype)
+            elif SimpegConfig().torch_is_active and isinstance(Grad, torch.Tensor) and SimpegConfig().device != "cpu":
+                Grad = Grad.cuda()
+            self._Grad_cached = Grad
             if isinstance(Grad, torch.Tensor):
                 self._gradT = Grad.T
             else:
-            
-                self._gradT = Grad.T.tocsr()  # cache the .tocsr()
+                self._gradT = Grad.T.tocsr()
+        Grad = self._Grad_cached
         GradT = self._gradT
 
         if isinstance(Grad, torch.Tensor):
@@ -773,28 +755,24 @@ class Simulation2DNodal(BaseDCSimulation2D):
             try:
 
                 if SimpegConfig().torch_is_active:
-                    device = SimpegConfig().device
-                    coo_matrix = self._AvgBC[ky].tocoo()
+                    # Cache the torch conversion of _AvgBC per ky
+                    if getattr(self, '_AvgBC_torch', None) is None:
+                        self._AvgBC_torch = {}
+                    if ky not in self._AvgBC_torch:
+                        device = SimpegConfig().device
+                        coo_matrix = self._AvgBC[ky].tocoo()
+                        indices_tensor = torch.from_numpy(
+                            np.vstack((coo_matrix.row, coo_matrix.col))
+                        ).long().to(device)
+                        values_tensor = torch.from_numpy(coo_matrix.data).to(device).to(SimpegConfig().dtype)
+                        self._AvgBC_torch[ky] = torch.sparse_coo_tensor(
+                            indices=indices_tensor, values=values_tensor,
+                            size=coo_matrix.shape, device=device, dtype=SimpegConfig().dtype
+                        )
+                        # Free scipy version once converted to torch
+                        del self._AvgBC[ky]
 
-                    rows = coo_matrix.row
-                    cols = coo_matrix.col
-                    values = coo_matrix.data
-
-                    indices = np.vstack((rows, cols))  # Combina filas y columnas
-                    indices_tensor = torch.from_numpy(indices).long().to(device)  # Índices deben ser de tipo Long
-                    values_tensor = torch.from_numpy(values).to(device).to(SimpegConfig().dtype)  # Asegurar tipo correcto
-
-                    # Paso 4: Crear el tensor disperso de PyTorch
-                    shape = coo_matrix.shape  # Tamaño de la matriz (filas, columnas)
-                    torch_sparse_coo = torch.sparse_coo_tensor(
-                        indices=indices_tensor,
-                        values=values_tensor,
-                        size=shape,
-                        device=device,
-                        dtype=SimpegConfig().dtype
-                    )
-                    
-                    A = A + sdiag(torch_sparse_coo @ self.sigma.to(SimpegConfig().dtype).to(device))
+                    A = A + sdiag(self._AvgBC_torch[ky] @ self.sigma.to(SimpegConfig().dtype).to(SimpegConfig().device))
 
                 else:
 

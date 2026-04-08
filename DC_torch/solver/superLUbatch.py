@@ -1,3 +1,14 @@
+"""
+SuperLUBatch — Differentiable SuperLU solver via torch.autograd.Function
+=========================================================================
+Wraps scipy's SuperLU factorization as a PyTorch autograd-compatible
+batch solver. Forward: sparse LU factorization + solve. Backward:
+conjugate-transpose solve reusing existing factorization for grad_B,
+outer-product sparse gradient for grad_A.
+
+Author: Edwin Cuellar (eacuellarq@eafit.edu.co)
+"""
+
 import time
 import torch
 from scipy.sparse import csr_matrix
