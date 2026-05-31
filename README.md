@@ -208,12 +208,14 @@ If you use this extension in your research, please cite:
 ```
 
 ## Related Publications
+```bibtex
 @unpublished{rincon2026adert,
   author = {Rincón, A. and others},
   title = {ADERT: Automatic differentiation-based electrical resistivity tomography},
   note = {Manuscript under review at Journal of Applied Geophysics},
   year = {2026}
 }
+```
 ## License
 
 MIT License - see LICENSE file for details.
