@@ -1,14 +1,14 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite it as below."
-type: extension
+message: "If you use this software, please cite the associated article (preferred-citation below)."
+type: software
 title: "SimPEG DC Resistivity with PyTorch Backend"
-abstract: "A PyTorch implementation of SimPEG's DC resistivity simulations allow automatic differentiation."
+abstract: "A PyTorch implementation of SimPEG's DC resistivity simulations enabling automatic differentiation."
 authors:
-  - family-names: "Edwin Cuellar"
+  - given-names: "Edwin"
+    family-names: "Cuellar"
     email: "eaqm1228@hotmail.com"
-
-repository-code: "https://github.com/eacuellarq/simpeg-dc-pytorch"
-url: "https://github.com/eacuellarq/simpeg-dc-pytorch"
+repository-code: "https://github.com/eacuellarq/SimPEG_DC_Torch"
+url: "https://github.com/eacuellarq/SimPEG_DC_Torch"
 license: MIT
 keywords:
   - geophysics
@@ -20,3 +20,30 @@ keywords:
   - geophysical-inversion
 version: 0.1.0
 date-released: 2025-08-01
+identifiers:
+  - type: doi
+    value: 10.1016/j.jappgeo.2026.106365
+    description: "Associated peer-reviewed article"
+# preferred-citation points citation tools to the paper instead of the software.
+preferred-citation:
+  type: article
+  title: "ADERT: Automatic differentiation-based electrical resistivity tomography inversion"
+  authors:
+    - given-names: "Felipe"
+      family-names: "Rincón"
+    - given-names: "Mattia"
+      family-names: "Aleardi"
+    - given-names: "Edwin"
+      family-names: "Cuellar"
+    - given-names: "Sean"
+      family-names: "Berti"
+    - given-names: "Andrea"
+      family-names: "Tognarelli"
+    - given-names: "Eusebio"
+      family-names: "Stucchi"
+  journal: "Journal of Applied Geophysics"
+  year: 2026
+  start: 106365
+  issn: "0926-9851"
+  doi: "10.1016/j.jappgeo.2026.106365"
+  url: "https://www.sciencedirect.com/science/article/pii/S0926985126002740"
