@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dctorch"
+dynamic = ["version"]
+description = "GPU DC-resistivity and IP forward modeling with exact adjoint sensitivities, as an extension of stock SimPEG"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "Edwin Cuellar", email = "geologyeafit@gmail.com" }]
+keywords = [
+    "geophysics", "dc-resistivity", "induced-polarization", "ert",
+    "simpeg", "pytorch", "gpu", "automatic-differentiation",
+    "geophysical-inversion",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "torch>=2.5",
+    "simpeg>=0.25",
+    "discretize>=0.11",
+]
+
+[project.optional-dependencies]
+# The GPU direct solver. nvmath-python is the cuDSS binding and is CUDA-only;
+# without it dctorch still imports and runs on the CPU (SuperLU) path.
+cuda12 = ["nvmath-python[cu12]>=0.5"]
+# MKL Pardiso, the CPU reference the tests compare parity against. Conda-forge
+# is the reliable channel for it -- see environment.yml.
+tests = ["pydiso>=0.1"]
+examples = ["matplotlib>=3.8", "pandas>=2.0", "jupyter"]
+
+[project.urls]
+Repository = "https://github.com/eacuellarq/simpeg-dc-pytorch"
+
+[tool.setuptools]
+packages = ["dctorch", "dctorch.tests"]
+
+[tool.setuptools.dynamic]
+version = { attr = "dctorch.__version__" }

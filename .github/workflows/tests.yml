@@ -1,0 +1,73 @@
+# The CPU half of the test suite. dctorch's GPU path needs cuDSS through
+# nvmath-python, which no hosted runner provides, so what runs here is
+# everything that does not: the coverage suite over {2.5D, 3D} x {TensorMesh,
+# TreeMesh}, the 2.5-D regression, and the IP / complex-resistivity engines.
+# Their parity and gradient assertions are device-independent -- the device only
+# changes the timings they print.
+#
+# That this job runs at all also tests something: the runner has no nvmath, so a
+# green build proves `import dctorch` does not require it.
+#
+# GPU-only tests, to be run by hand on a machine with a card:
+#   python -m dctorch.tests.test_solver
+#   python -m dctorch.tests.test_protocol2d
+#   python -m dctorch.tests.test_singularity
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  cpu:
+    name: CPU tests (Python 3.11, conda-forge)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}          # login shell, so the conda env is active
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          environment-file: environment.yml
+          activate-environment: dctorch
+          miniforge-version: latest
+          use-mamba: true
+
+      - name: Install dctorch
+        run: pip install -e . --no-deps
+
+      - name: Report the stack
+        run: |
+          python - <<'PY'
+          import importlib, sys
+          print("python", sys.version.split()[0])
+          for mod in ("numpy", "scipy", "torch", "simpeg", "discretize"):
+              print(mod, importlib.import_module(mod).__version__)
+          import torch
+          print("cuda available:", torch.cuda.is_available())
+          from dctorch.solver import _NVMATH_ERR
+          print("nvmath present:", _NVMATH_ERR is None)
+          PY
+
+      - name: Coverage suite -- 2.5D/3D x Tensor/Tree, parity and gradient
+        run: python -m dctorch.tests.test_suite
+
+      - name: 2.5-D regression -- parity against stock SimPEG
+        run: python -m dctorch.tests.test_simulation2d
+
+      - name: Sensitivities -- the batched adjoint against stock and Jtvec
+        run: python -m dctorch.tests.test_jmatrix
+
+      - name: Induced polarization -- 2.5D and 3D
+        run: |
+          python -m dctorch.tests.test_ip2d
+          python -m dctorch.tests.test_ip3d
+
+      - name: Joint non-linear DC-IP, and complex resistivity
+        run: |
+          python -m dctorch.tests.test_dcip2d
+          python -m dctorch.tests.test_cr2d

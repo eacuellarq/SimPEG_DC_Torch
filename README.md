@@ -1,332 +1,251 @@
-# SimPEG DC Resistivity with PyTorch Backend
+# dctorch — DC resistivity and IP on the GPU, with exact adjoint sensitivities
 
-A PyTorch implementation of SimPEG's DC resistivity simulations with automatic differentiation.
+`dctorch` solves the DC-resistivity forward problem on a graphics card and
+differentiates it exactly, so an inversion is driven by the gradient of its own
+objective function rather than by a stored table of sensitivities. The
+sensitivities are never assembled: `J^T v` is the reverse pass of the forward
+solve, which costs about one extra simulation. Peak memory is therefore set by
+the simulation, not by how many measurements were collected, and densifying a
+survey no longer threatens the run.
 
-## Overview
+It **extends stock SimPEG from the outside**. Nothing in `site-packages` is
+patched or replaced: SimPEG and `discretize` stay on numpy and keep their
+compiled extensions, torch lives entirely inside this package, and the problem
+is still defined the SimPEG way — a `TensorMesh` or `TreeMesh`, a
+`dc.survey.Survey`, the same boundary conditions. At build time the engine runs
+SimPEG's own assembly once to extract a sparse linear map from conductivity to
+the values of the system matrix, and validates that map against `sim.getA()`
+before using it.
 
-This repository provides PyTorch-enabled versions of SimPEG's core modules, specifically optimized for DC resistivity simulations. The implementation leverages PyTorch's automatic differentiation capabilities.
+## What is in it
 
-> ### 📄 Associated publication
-> This software accompanies the following peer-reviewed article. **If you use this code, please cite the paper:**
->
-> Rincón, F., Aleardi, M., Cuellar, E., Berti, S., Tognarelli, A., & Stucchi, E. —
-> "ADERT: Automatic differentiation-based electrical resistivity tomography inversion",
-> *Journal of Applied Geophysics*, **2026**, article 106365.
-> DOI: [10.1016/j.jappgeo.2026.106365](https://doi.org/10.1016/j.jappgeo.2026.106365) ·
-> [ScienceDirect](https://www.sciencedirect.com/science/article/pii/S0926985126002740)
+| | |
+|---|---|
+| DC resistivity | `TorchDC2D` (2.5-D, multi-wavenumber), `TorchDC3D` |
+| Induced polarization | `TorchIP2D`, `TorchIP3D` (linearized), `TorchDCIP2D` (joint non-linear), `TorchCR2D` (complex resistivity) |
+| Meshes | `TensorMesh` and `TreeMesh` (octree), with active cells |
+| Linear solver | cuDSS on the GPU, SuperLU on the CPU — the same interface, dispatched on the device |
+| Precision | float64 and float32 (float32 is the useful default: half the memory, about half again as fast) |
+| Optimization | `TorchGaussNewton` (2.5-D) and `TorchLBFGS`, both exposed as SimPEG `Optimization`s, so `BetaSchedule`, `TargetMisfit`, `UpdateIRLS` and the other directives run unchanged |
+| Robustness | `StudentTDataMisfit` for a heavy-tailed misfit |
+| Accuracy option | singularity removal in 2.5-D (`singularity_removal=True`, off by default; see `notes/HANDOFF_2026-09-27.md` for where it pays and where it does not) |
+| Wavenumbers | Fitted over the survey's electrode distances with positive weights, 12 by default (`quadrature="electrodes"`, as RES2DINV fits its own). On a 661-measurement field line its forward error against a 31-point reference is 0.0007 % median (SimPEG's own 12: 0.035 %), same inverted model. Fewer points are not equivalent on a real mesh (7 reach 2.5 % forward error), so 12 stays. `quadrature="simpeg"` gives stock SimPEG's points and bit parity; `DCTORCH_QUADRATURE=simpeg` restores that globally, to reproduce results made before this default |
 
-## Features
+Measured on the regression case in `dctorch/tests/test_simulation2d.py` (2.5-D,
+5 000 cells, 21 electrodes, `nky=11`), on an RTX 4070 Laptop (8 GB):
 
-- PyTorch backend for SimPEG DC resistivity simulations in 2.5D and 3D.
-- GPU support
-- Automatic differentiation for gradient-based inversions
-- Custom solvers optimized for sparse linear systems
-- Selective replacement of discretize modules while preserving compiled extensions
-- Compatible with existing SimPEG workflows
+```
+[parity]   dpred torch vs stock SimPEG: rel-err 8.2e-16
+[gradient] directional vs finite differences: 5.8e-08
+[time]     eval 9.5 ms | eval+grad 18.5 ms | stock CPU eval 352 ms (37x)
+```
 
-## Requirements
+The same test on the CPU path gives `9.5e-16` parity and `1.5x`. Field-scale
+figures, the inversion races and the negative results are in `paper/NUMBERS.md`
+and reproducible from `paper/benchmarks/`.
 
-- Python 3.10
-- CUDA-capable GPU (optional)
-- Anaconda or Miniconda
+## Install
 
-## Installation
-
-### Step 1: Create Conda Environment
+The CPU stack is complete — everything imports and every test passes on it.
 
 ```bash
 conda env create -f environment.yml
-conda activate simpeg-pytorch
+conda activate dctorch
+pip install -e .
 ```
 
-### Step 2: Install SimPEG
+For the GPU path add the two CUDA pieces, which are not on conda-forge:
 
 ```bash
-pip install simpeg==0.18.1
+pip install --index-url https://download.pytorch.org/whl/cu128 torch
+pip install "nvmath-python[cu12]"
 ```
 
-### Step 3: Install PyTorch
+`nvmath-python` is the cuDSS binding and is CUDA-only. Without it `dctorch`
+still imports and runs; asking for a `cuda` solver then raises with that reason.
 
-Choose the appropriate PyTorch installation for your system:
+Certified environment: Python 3.11, numpy 2.4, scipy 1.17, torch 2.11+cu128,
+SimPEG 0.25.2, discretize 0.12, nvmath 1.0, CUDA 12.8.
 
-**For CUDA 12.4 (GPU acceleration):**
-```bash
-pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
-```
+## Use
 
-**For CPU only:**
-```bash
-pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1
-```
-
-**For other CUDA versions, see:** https://pytorch.org/get-started/locally/
-
-### Step 4: Install pydiso
-
-```bash
-conda install -c conda-forge pydiso
-```
-
-> `pydiso` is only required for the **Pardiso** CPU solver. If you only plan to use
-> SuperLU (CPU) or the GPU solvers, you can skip this step.
-
-### Step 5 (optional): CuPy for the experimental GPU sparse solver
-
-The experimental `SpSolverGPU` backend (see [Solvers](#solvers)) relies on CuPy. It is
-**not** required for the default GPU path (PCG-GPU). Install only if you want to use it:
-
-```bash
-pip install cupy-cuda12x   # match your CUDA toolkit
-```
-
-### Step 6: Install PyTorch Modifications
-
-```bash
-python install.py
-```
-
-This overwrites the installed `SimPEG`/`discretize` packages with the PyTorch-enabled
-versions in `DC_torch/`, and installs `solver/` and `utils/` as top-level packages in
-`site-packages` (so they are importable as `from solver...` and `from utils...`).
-
-### Verification
-
-Test the installation:
-
-```python
-import SimPEG
-from SimPEG.config import SimpegConfig
-
-# Check if PyTorch backend is active
-cfg = SimpegConfig()
-print(f"PyTorch backend active: {cfg.torch_is_active}")
-
-# Test basic functionality
-import torch
-print(f"PyTorch version: {torch.__version__}")
-print(f"CUDA available: {torch.cuda.is_available()}")
-```
-
-## Quick Start
-
-```bash
-# 1. Create and activate environment
-conda env create -f environment.yml
-conda activate simpeg-pytorch
-
-# 2. Install SimPEG
-pip install simpeg==0.18.1
-
-# 3. Install PyTorch (choose GPU or CPU version)
-pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
-
-# 4. Install pydiso (only needed for the Pardiso solver)
-conda install -c conda-forge pydiso
-
-# 5. Install PyTorch modifications
-python install.py
-```
-
-## Usage
-
-The PyTorch backend is controlled through the `SimpegConfig` singleton. You activate it,
-choose a device and a solver, and then build and run a `SimulationDCResistivity` exactly
-as you would in standard SimPEG. Because the forward solve is differentiable, gradients
-of any scalar built from the predicted data flow back to the model through `.backward()`.
+The model is `m = log(rho)` on the full mesh, matching a stock simulation built
+with `rhoMap=maps.ExpMap(mesh)`.
 
 ```python
 import torch
-from SimPEG.config import SimpegConfig
-from utils.simulation_dc_resistivity import SimulationDCResistivity
+from dctorch import TorchDC2D
 
-# 1. Activate the PyTorch backend and select device + solver
-cfg = SimpegConfig()
-cfg.torch_is_active = True
-cfg.dtype = torch.float64
-cfg.device = "cpu"        # "cpu" or "cuda"
-cfg.solver = "superlu"    # see "Solver routing" below
+eng = TorchDC2D(mesh, survey, nky=11, device="cuda")   # mesh/survey: plain SimPEG
 
-# 2. Differentiable resistivity model (requires_grad=True enables autograd)
-m = torch.tensor(model_np, requires_grad=True, dtype=torch.float64)
-
-# 3. Survey definition
-surveyinfo = dict(
-    nElec=24, sep=2.0, pi=0, depth=float(nz),
-    typ_survey="dipole-dipole", dim="2D",
-    data_type="volt", nlines=6, pf=48.0,
-)
-
-# 4. Build the simulation
-sim = SimulationDCResistivity(model=m, surveyinfo=surveyinfo, tensor=True)
-sim.initialize_survey()
-sim.initialize_mesh(adjust_model=False, m_background=torch.mean(m))
-
-# 5. Forward modeling (2.5D uses nky wavenumbers)
-dpred = sim.forward_modeling(nky=11, error=0.0, only_data=True)
-
-# 6. Exact gradient via autograd (replaces SimPEG's finite-difference Jacobian)
-dpred.sum().backward()
-grad = m.grad   # dL/dm at every cell
+m = torch.tensor(m0, device="cuda", requires_grad=True)
+eng.misfit(m, dobs, w).backward()      # w * (dpred - dobs), squared
+g = m.grad                             # exact J^T v, no Jacobian anywhere
 ```
 
-> The `solver/` and `utils/` packages are installed at the top level of `site-packages`
-> by `install.py`, so the imports above (`from solver...`, `from utils...`) work from any
-> working directory. The benchmark script, however, imports `utils` and `solver` directly
-> and is meant to be run from inside `DC_torch/` (see [Examples](#examples)).
+The same reverse pass is available with any data-space vector in place of the
+residual, which is what posterior analysis consumes:
 
-For complete, runnable end-to-end workflows (mesh, survey, plotting, inversion), see the
-notebooks in `examples/`.
+```python
+g = eng.Jtvec(m, v)          # J^T v, one extra simulation, no nD x nM array
+```
 
-## Architecture
+A rank-k sketch of the sensitivities is k of those; the explicit Jacobian is nD
+of them and is only affordable on small surveys.
 
-The implementation modifies the following SimPEG components:
+To invert, hand the engine to an optimizer and build the inverse problem with
+stock SimPEG:
 
-- **SimPEG Core**: Complete replacement with PyTorch tensor operations
-- **Discretize**: Selective replacement preserving compiled extensions
-- **Custom Solvers**: Differentiable solver backends for the linear systems arising from DC resistivity (see below)
-- **Utilities**: Enhanced simulation utilities in `utils/` module
+```python
+from dctorch import TorchGaussNewton            # or TorchLBFGS
+opt = TorchGaussNewton(engine=eng, maxIter=25)
+# regularization: stock SimPEG; directives: TargetMisfit only --
+# beta is chosen inside every step (Occam), so no BetaSchedule
+```
 
-## Solvers
+The defaults are the method validated on a field line (RES2DINV-style: the
+program chooses, the user does not tune): 12 fitted wavenumbers in the
+engine, and Gauss-Newton with the Occam beta search, which takes the largest
+beta whose linearized misfit reaches the target. On that line, with the stock
+recipe (golden sigmas, alpha_s = 1e-3), it reproduces stock SimPEG's
+Gauss-Newton section (corr 0.992, near surface and at depth) in 4.6 s in
+float64 and 2.8 s with `dtype=torch.float32` (same model, corr 1.0000),
+against 204 s for stock SimPEG. `beta_search=False` restores one step per
+beta level driven by a `BetaSchedule`.
 
-The repository includes four production solver backends, each implemented as a
-`torch.autograd.Function` so that gradients flow through the linear solve:
+The data error model matters more than any setting: the golden sigmas
+(floor + 5 % |d|) reproduce stock SimPEG; a pure 5 % relative error on log
+data weights the smallest, deepest voltages fully and changes the deep model
+(corr 0.89 below 150 m) whatever the engine.
 
-| Solver | Device | Strategy | Backward pass |
-|--------|--------|----------|---------------|
-| **SuperLU** | CPU | Sparse LU factorization (`scipy.sparse.linalg.splu`) | Conjugate-transpose solve reusing LU factors |
-| **Pardiso** | CPU | Intel MKL Pardiso via `pymatsolver` | Reuses existing LDL^T factorization with `transpose=True` (no refactorization of A^T) |
-| **PCG-GPU** | CUDA | Jacobi-preconditioned Conjugate Gradient with `torch.sparse.mm` | Same PCG (A is SPD, so A^T = A) |
-| **Dense-GPU** | CUDA | Densifies A and solves with `torch.linalg.solve` | Native PyTorch autograd through `torch.linalg.solve` |
+`TorchGaussNewton` takes one Gauss-Newton step per iteration on the exact
+sensitivities: one J per step (the batched adjoint `Jmatrix` when it fits
+`explicit_max_gib`, otherwise a `linearize`d forward with `Jvec`/`Jtvec`)
+serves both the gradient and the normal equations, which are solved by
+truncated CG (`cg_rtol`, default 1e-2) with a Jacobi preconditioner from the
+exact diagonal of J^T D J. Steps are capped at `max_step` in log-resistivity
+and accepted by an Armijo line search along a parabola built from f(0), the
+slope and f(1). `inner="direct"` solves the step exactly in data space
+(Woodbury: an nD x nD system), which on the line below converged no faster
+than the truncated CG.
 
-In addition, an **experimental** `SpSolverGPU` backend (`solver/spsolverGPU.py`) wraps
-CuPy's sparse direct solver (`cupyx.scipy.sparse.linalg.spsolve`, i.e. cuSOLVER) as a
-`torch.autograd.Function`. It performs a true sparse solve on the GPU without densifying
-A. It is **not wired into `SolverWrapD` routing** and requires CuPy; treat it as a
-prototype/reference rather than a selectable option.
+On the comparison line of `examples/inversion_2d_dctorch_compare.ipynb`
+(8,816 cells, 195 data, same beta0 and directives;
+`paper/benchmarks/scripts/gauss_newton_2d.py`), seeds 1-3, RTX 4070 Laptop:
 
-### Solver routing
+| | time | rms log10 rho vs truth | SSIM |
+|---|---|---|---|
+| stock SimPEG `InexactGaussNewton`, CPU | 39.6 s | 0.350 | 0.401 |
+| `TorchLBFGS` | 12.0-13.1 s | 0.347-0.364 | 0.341-0.357 |
+| `TorchGaussNewton` (explicit J) | 2.5-2.7 s | 0.304-0.331 | 0.385-0.434 |
 
-Routing is handled automatically by `SolverWrapD` based on the `SimpegConfig` singleton.
-Note that on CUDA the device takes precedence: any solver other than `dense_gpu` falls
-through to PCG-GPU.
+Memory: the explicit J is streamed from one linearization a few rows at a
+time, and the matrix-free products never copy the assembly map, so
+Gauss-Newton peaks no higher than `TorchLBFGS` (GPU above baseline, same
+problem refined 2x: 652 MiB for both explicit GN and L-BFGS at 35k cells,
+586 MiB matrix-free; 174 vs 302 MiB at 8.8k cells) while running 3.8-4.8x
+faster in the explicit mode.
 
-- `device="cpu"` + `solver="superlu"` -> **SuperLU**
-- `device="cpu"` + `solver="pardiso"` -> **Pardiso**
-- `device="cuda"` + `solver="dense_gpu"` -> **Dense-GPU**
-- `device="cuda"` + any other solver -> **PCG-GPU**
+Gauss-Newton tends to overshoot the target misfit (chi2 0.41-0.63 against
+L-BFGS's 0.75-0.96), since `TargetMisfit` checks after a whole step. It
+needs the plain formulation: under singularity removal use `TorchLBFGS`.
 
-## Benchmark: 2.5D DC Resistivity (forward + backward)
+The Occam search (`beta_search=True`, the default) chooses beta inside every step (Occam's inversion,
+RES2DINV's "combined Marquardt and Occam"): with J fixed, the exact step for
+any beta is one nD x nD Cholesky, so candidates are cheap, and the largest
+beta whose linearized misfit reaches the target -- the smoothest model that
+fits -- is taken. Drop `BetaSchedule` from the directives. On the line above it
+ends at chi2 0.86-0.99 instead of overshooting, usually in fewer iterations
+(8-10 against 11-16), and its final beta no longer depends on beta0: started
+10^4 apart, two runs end within 8 % of each other. It returns the smoothest
+model consistent with the noise, so on a blocky synthetic its rms against the
+truth is ~0.02-0.03 higher than an overshooting run, at equal or better SSIM.
+Needs the explicit J and `alpha_s > 0`.
 
-Total time (forward + backward) relative to SuperLU, measured on 2D resistivity models with `nky=11` wavenumbers, dipole-dipole survey:
+Worked examples, including the two field cases and the comparisons against the
+conventional workflow, are in `examples/`.
 
-| Params | SuperLU | Pardiso | PCG-GPU | Dense-GPU |
-|-------:|--------:|--------:|--------:|----------:|
-| 100 | 1.00x | 0.85x | 0.56x | 1.72x |
-| 500 | 1.00x | 0.90x | 0.76x | 1.27x |
-| 1000 | 1.00x | 0.97x | 0.64x | 1.10x |
-| 2010 | 1.00x | 0.97x | 0.46x | 0.58x |
-| 3000 | 1.00x | 1.07x | 0.33x | 0.39x |
-| 4000 | 1.00x | 1.06x | 0.23x | 0.25x |
-| 5000 | 1.00x | 1.08x | N/A | N/A |
-| 6000 | 1.00x | 1.08x | N/A | N/A |
-| 8000 | 1.00x | 1.07x | N/A | N/A |
-| 9000 | 1.00x | 1.11x | N/A | N/A |
-| 10000 | 1.00x | 1.04x | N/A | N/A |
-
-> Values > 1.0 mean faster than SuperLU; values < 1.0 mean slower.
-
-### Analysis
-
-- **SuperLU** is the most robust baseline for 2D problems. Sparse LU factorization scales well and has minimal overhead per wavenumber.
-- **Pardiso** matches SuperLU closely. Its LDL^T backward reuse gives a significant speedup on the backward pass alone (6x-27x), but the overall forward+backward time is similar because the forward solve is comparable.
-- **PCG-GPU** is slower than CPU solvers for 2D problems. The iterative CG runs once per wavenumber (11 solves), and the per-iteration overhead of sparse-dense GPU operations dominates for the relatively small systems that 2D meshes produce. For large 3D systems (nC > 50k), GPU parallelism is expected to dominate.
-- **Dense-GPU** works only for small meshes. Densifying the sparse system matrix causes VRAM to grow as O(n^2), making it infeasible beyond ~4000 parameters on a typical 8GB GPU. When it fits in memory, `torch.linalg.solve` is competitive for very small systems but quickly falls behind.
-
-### Other solvers worth exploring
-
-There are several GPU-native sparse direct and iterative solvers that could outperform the options above for large 3D problems:
-
-- **cuSOLVER** (`cusolverSpcsrlsvlu`, `cusolverSpcsrlsvchol`): NVIDIA's sparse direct solvers, accessible via CuPy. A reference implementation already exists in `solver/spsolverGPU.py` (`SpSolverGPU`), but it is not yet wired into the routing layer.
-- **CHOLMOD on GPU**: Sparse Cholesky factorization with GPU acceleration (SuiteSparse). Ideal for SPD systems like DC resistivity.
-- **AMGX**: NVIDIA's algebraic multigrid solver. Excellent for large-scale elliptic PDEs, which is exactly what DC resistivity produces.
-- **PETSc + GPU**: Distributed sparse solvers with GPU backends (CUDA, HIP). Overkill for single-GPU but powerful for multi-GPU clusters.
-- **Sparse QR on GPU**: For non-symmetric systems or least-squares formulations.
-
-The solver interface (`torch.autograd.Function` with `forward`/`backward`) is modular enough that any of the above can be plugged in following the same pattern as `SuperLUBatch` or `PardisoBatch`.
-
-## Examples
-
-See the `examples/` directory for complete working examples:
-
-- `fwd_dcr_plane_2d.ipynb`: DC resistivity forward modeling in 2D plane geometry
-- `fwd_dcr_topo_2d.ipynb`: DC resistivity forward modeling with 2D topography
-- `fwd_dcr_topo_3d.ipynb`: DC resistivity forward modeling with 3D topography
-- `benchmark_solvers_dc.py`: Full benchmark script (generates plots + Excel export)
-
-The benchmark imports `utils` and `solver` directly, so run it from inside `DC_torch/`:
+## Tests
 
 ```bash
-cd DC_torch
-python ../examples/benchmark_solvers_dc.py
+python -m dctorch.tests.test_suite           # {2.5D,3D} x {Tensor,Tree} x {cuda,cpu}
+python -m dctorch.tests.test_simulation2d    # the 2.5-D regression: parity + gradient
+python -m dctorch.tests.test_ip2d            # and test_ip3d, test_cr2d, test_dcip2d
+python -m dctorch.tests.test_linearization   # J v, J^T v, diag(J^T D J) vs Jmatrix
+python -m dctorch.tests.test_gauss_newton    # GN pieces vs autograd, then inversions
+python -m dctorch.tests.test_quadrature      # wavenumber fit vs SimPEG's, half-space accuracy
 ```
 
-## Performance
+Those run with or without a GPU: the device sweep collapses to the CPU path when
+`torch.cuda.is_available()` is false, and the parity and gradient assertions do
+not depend on the device. `test_solver`, `test_protocol2d` and `test_singularity`
+need a GPU. Continuous integration runs the first group on CPU.
 
-- Exact gradients via autograd, replacing SimPEG's finite-difference Jacobian approximation for DC 2.5D and 3D.
-- Memory-optimized forward: solver factorizations are released after the forward pass when using autograd (backward is handled by the computation graph, not by stored Ainv objects).
+Every engine also self-validates at construction: the extracted assembly map is
+checked against SimPEG's own `getA` at two models, to 1e-10, on any mesh.
 
-## Limitations
+## Layout
 
-- Currently supports DC resistivity simulations only
-- GPU solvers (PCG-GPU, Dense-GPU) are not competitive for 2D problems due to small system sizes; expected advantage for 3D with nC > 50k
-- Some advanced SimPEG features may not be fully compatible because this development was based on SimPEG 0.18.1
-
-## Contributing
-
-This is a research extension under active development. Please report issues or contribute improvements via GitHub.
-
-## Citation
-
-This software is associated with a peer-reviewed publication (see [Associated publication](#-associated-publication) above). **Please cite the paper as the primary reference.** If you additionally want to cite the software itself:
-
-```bibtex
-@software{simpeg_dc_pytorch,
-  title  = {SimPEG DC Resistivity with PyTorch Backend},
-  author = {Cuellar, Edwin},
-  year   = {2025},
-  url    = {https://github.com/eacuellarq/SimPEG_DC_Torch},
-  note   = {Software accompanying doi:10.1016/j.jappgeo.2026.106365}
-}
+```
+dctorch/            the package: solver, simulations, IP/CR, optimization, tests
+examples/           notebooks and scripts, including the field cases
+paper/              the manuscript, its measured numbers, and the benchmark suite
+paper/edits/        how the manuscript is edited, and the conventions it follows
+notes/              session records: what was measured, what failed, and why
 ```
 
-## Related Publications
+## Relation to ADERT
 
-```bibtex
-@article{RINCON2026106365,
-  author  = {Rincón, Felipe and Aleardi, Mattia and Cuellar, Edwin and Berti, Sean and Tognarelli, Andrea and Stucchi, Eusebio},
-  title   = {ADERT: Automatic differentiation-based electrical resistivity tomography inversion},
-  journal = {Journal of Applied Geophysics},
-  year    = {2026},
-  pages   = {106365},
-  issn    = {0926-9851},
-  doi     = {10.1016/j.jappgeo.2026.106365},
-  url     = {https://www.sciencedirect.com/science/article/pii/S0926985126002740}
-}
-```
+This engine is an improved version of the one that accompanied **ADERT**:
+Rincon, Aleardi, Cuellar, Berti, Tognarelli and Stucchi (2026), *ADERT:
+Automatic differentiation-based electrical resistivity tomography inversion*,
+Journal of Applied Geophysics 252, 106365. That paper — which this author
+co-wrote — showed that reverse-mode automatic differentiation gives exact ERT
+sensitivities on a graphics card, and it remains the right citation for that
+result. It is not the citation for this engine.
+
+**Where to find ADERT**
+
+| | |
+|---|---|
+| the paper | [doi:10.1016/j.jappgeo.2026.106365](https://doi.org/10.1016/j.jappgeo.2026.106365) · [ScienceDirect](https://www.sciencedirect.com/science/article/pii/S0926985126002740) |
+| its companion code | the earlier state of this repository, at [github.com/eacuellarq/simpeg-dc-pytorch](https://github.com/eacuellarq/simpeg-dc-pytorch) before this rewrite |
+| what it also covers | annealed Stein variational inference and DCT model compression for probabilistic ERT, which this engine does not reimplement |
+
+**What this version improves.** It shares the idea and almost none of the
+code, and one difference produced all the others: where SimPEG sits. The
+earlier version replaced modules inside an installed SimPEG, which pinned it
+to one old release, put the autograd graph inside a library that knew nothing
+about torch, and made every upgrade a merge. This one imports stock SimPEG and
+extends it from outside: torch never crosses into `simpeg` or `discretize`,
+and the operators it extracts are re-validated against SimPEG's own on every
+construction, so a wrong extraction fails loudly instead of quietly returning
+a plausible number.
+
+| | earlier version | this one |
+|---|---|---|
+| SimPEG | 0.18.1, modules replaced in `site-packages` | 0.25 stock, nothing patched |
+| Python / torch | 3.10 / 2.5 | 3.11 / 2.11 |
+| Linear solver | per-solve factorization | cuDSS, symbolic phase cached per sparsity pattern, values updated in place |
+| Precision | double | double and single; single is the useful default |
+| Sensitivities | — | never assembled; `Jtvec` is one reverse pass, and a batched adjoint forms the whole matrix in 0.31 s where it is wanted (30.0 s for SimPEG's stored one on the same problem) |
+| Optimizers | — | `TorchLBFGS` and `TorchGaussNewton` with an Occam beta search, both driven by SimPEG's own directives |
+| Wavenumbers | SimPEG's, fitted over the mesh | fitted over the survey's electrode distances with positive weights |
+| Beyond DC | — | induced polarization in 2.5-D and 3-D, joint non-linear DC-IP, complex resistivity |
+| Verification | — | forward parity 7 × 10⁻¹⁶ to 2 × 10⁻¹⁵ against stock SimPEG and gradients to 10⁻⁷ against finite differences, over {2.5-D, 3-D} × {tensor, octree} × {GPU, CPU}, in CI |
+
+On SimPEG's published three-dimensional tutorial the same inversion that takes
+692.5 s conventionally takes 78.5 s in double precision and 35.4 s in single,
+in the same number of iterations and to the same model. Three-dimensional
+tensor meshes work, which they did not before.
+
+## Citing
+
+`CITATION.cff` carries the software citation. The engine and its benchmarks are
+described in a manuscript in preparation. Cite Rincon et al. (2026) for the
+predecessor and for automatic-differentiation ERT itself; see *Relation to
+ADERT* above for where to find it.
 
 ## License
 
-MIT License - see LICENSE file for details.
-
-## Acknowledgments
-
-This work builds upon the SimPEG framework:
-
-- Cockett, R., Kang, S., Heagy, L. J., Pidlisecky, A., & Oldenburg, D. W. (2015). SimPEG: An open source framework for simulation and gradient based parameter estimation in geophysical applications. Computers & Geosciences, 85, 142-154.
-
-## Support
-
-For questions and support:
-
-- Open an issue on GitHub
-- Contact: eaqm1228@hotmail.com
+MIT. See `LICENSE`.

@@ -1,0 +1,39 @@
+Sign of the sensitivities in AD-TLERT (github.com/Vcholerae1/AD-TLERT, branch
+master, commit f8efd38), reported here and verified on 2026-09-23.
+
+Symptom: for any measurement whose geometric factor is negative -- every
+dipole-dipole quadruple, and pole-dipole or gradient arrays in some orderings --
+the Jacobian is the negative of the true derivative. Measured against central
+differences of their own forward, J v fits the derivative with a scalar of
+-0.956 (correlation -0.954) on 332 dipole-dipole data, and +0.989 on 360 Wenner
+data from the same model. Gauss-Newton then walks uphill, the line search
+shrinks the step to zero, and the inversion stops at the starting model with
+chi2 = 83; with the line search disabled it diverges to chi2 = 5750.
+
+Cause: the apparent resistivity is formed as abs(geometric factor) times a
+resistance that is itself positive for these arrays, so two sign errors cancel
+in the value and only one cancels in the derivative.
+
+Fix: take the geometric factor signed where the Jacobian (and the matrix-free
+cotangent) is scaled. Four places in adtlert/inversion/core.py:
+
+  line  409:  apparent_jacobian_sigma = torch_np.abs(self.forward_operator._geometric_factors())[:, None] * resistance_jacobian
+          ->  apparent_jacobian_sigma = self.forward_operator._geometric_factors()[:, None] * resistance_jacobian
+
+  line 1092:  apparent_jacobian_sigma = torch_np.abs(forward._geometric_factors())[:, None] * resistance_jacobian
+          ->  apparent_jacobian_sigma = forward._geometric_factors()[:, None] * resistance_jacobian
+
+  line 1240:  geometric_factors = np.abs(np.asarray(operator._geometric_factors(), dtype=float)).reshape(-1)
+          ->  geometric_factors = np.asarray(operator._geometric_factors(), dtype=float).reshape(-1)
+
+  line 1307:  geometric_factors = np.abs(np.asarray(operator._geometric_factors(), dtype=float)).reshape(1, -1)
+          ->  geometric_factors = np.asarray(operator._geometric_factors(), dtype=float).reshape(1, -1)
+
+After the fix: J v fits the derivative at +0.956 on the dipole-dipole data, and
+their inversion of it converges in 2 iterations and 1.0 s to chi2 = 0.81. The
+Wenner case is unchanged, since there the geometric factor is already positive.
+
+Reproducer: paper/benchmarks/scripts/spheres25d_make.py builds the model and
+both arrays from stock SimPEG; the data are exported through AD-TLERT's own
+writers. The check is J v against (f(m + eps v) - f(m - eps v)) / 2 eps using
+their own forward.

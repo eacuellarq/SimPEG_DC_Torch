@@ -1,5 +1,28 @@
-name: simpeg-pytorch
+# The certified environment for dctorch. The pinned versions are the ones the
+# published benchmarks were measured on; the lower bounds in pyproject.toml are
+# what the code needs.
+#
+# This file installs the CPU stack, which is complete: dctorch imports and runs
+# every test on it. For the GPU path add the two CUDA pieces afterwards, which
+# are not on conda-forge:
+#
+#   conda activate dctorch
+#   pip install --index-url https://download.pytorch.org/whl/cu128 torch
+#   pip install "nvmath-python[cu12]"
+#
+# pydiso is here because the tests compare parity against MKL Pardiso, and
+# conda-forge is the channel that reliably provides it.
+name: dctorch
 channels:
   - conda-forge
 dependencies:
-  - python=3.10
+  - python=3.11
+  - numpy>=2.0
+  - scipy>=1.13
+  - simpeg>=0.25
+  - discretize>=0.11
+  - pytorch>=2.5
+  - pydiso
+  - matplotlib>=3.8
+  - pandas>=2.0
+  - pip

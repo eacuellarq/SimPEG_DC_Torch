@@ -1,0 +1,23 @@
+=== nlines=3 dctorch ===
+  [survey] lines 3 | nD 828 | nS 114 | active 59,595
+  JSON: {"engine": "dctorch-f32", "nD": 828, "nS": 114, "nC": 59595, "nlines": 3, "mem_gib": 1.45, "t": 0.4}
+=== nlines=3 gn ===
+  [survey] lines 3 | nD 828 | nS 114 | active 59,595
+  JSON: {"engine": "gn-storeJ", "nD": 828, "nS": 114, "nC": 59595, "nlines": 3, "mem_gib": 1.58, "t": 117.3}
+=== nlines=9 dctorch ===
+  [survey] lines 9 | nD 2484 | nS 342 | active 80,508
+  JSON: {"engine": "dctorch-f32", "nD": 2484, "nS": 342, "nC": 80508, "nlines": 9, "mem_gib": 1.97, "t": 1.0}
+=== nlines=9 gn ===
+  [survey] lines 9 | nD 2484 | nS 342 | active 80,508
+  JSON: {"engine": "gn-storeJ", "nD": 2484, "nS": 342, "nC": 80508, "nlines": 9, "mem_gib": 3.41, "t": 557.9}
+=== nlines=17 dctorch ===
+  [survey] lines 17 | nD 4692 | nS 646 | active 81,488
+  JSON: {"engine": "dctorch-f32", "nD": 4692, "nS": 646, "nC": 81488, "nlines": 17, "mem_gib": 2.6, "t": 1.7}
+=== nlines=17 gn ===
+  [survey] lines 17 | nD 4692 | nS 646 | active 81,488
+  JSON: {"engine": "gn-storeJ", "nD": 4692, "nS": 646, "nC": 81488, "nlines": 17, "mem_gib": 5.41, "t": 1009.9}
+=== nlines=33 dctorch ===
+  [survey] lines 33 | nD 9108 | nS 1254 | active 81,614
+  JSON: {"engine": "dctorch-f32", "nD": 9108, "nS": 1254, "nC": 81614, "nlines": 33, "mem_gib": 3.89, "t": 3.2}
+=== nlines=33 gn ===
+  [survey] lines 33 | nD 9108 | nS 1254 | active 81,614
