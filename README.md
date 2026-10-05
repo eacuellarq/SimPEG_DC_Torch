@@ -209,7 +209,7 @@ result. It is not the citation for this engine.
 | | |
 |---|---|
 | the paper | [doi:10.1016/j.jappgeo.2026.106365](https://doi.org/10.1016/j.jappgeo.2026.106365) · [ScienceDirect](https://www.sciencedirect.com/science/article/pii/S0926985126002740) |
-| its companion code | the earlier state of this repository, at [github.com/eacuellarq/simpeg-dc-pytorch](https://github.com/eacuellarq/simpeg-dc-pytorch) before this rewrite |
+| its companion code | the earlier state of this repository, at [github.com/eacuellarq/SimPEG_DC_Torch](https://github.com/eacuellarq/SimPEG_DC_Torch) before this rewrite |
 | what it also covers | annealed Stein variational inference and DCT model compression for probabilistic ERT, which this engine does not reimplement |
 
 **What this version improves.** It shares the idea and almost none of the

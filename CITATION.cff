@@ -9,8 +9,8 @@ authors:
     email: "eaqm1228@hotmail.com"
     # orcid: "https://orcid.org/0000-0000-0000-0000"
 
-repository-code: "https://github.com/eacuellarq/simpeg-dc-pytorch"
-url: "https://github.com/eacuellarq/simpeg-dc-pytorch"
+repository-code: "https://github.com/eacuellarq/SimPEG_DC_Torch"
+url: "https://github.com/eacuellarq/SimPEG_DC_Torch"
 license: MIT
 keywords:
   - geophysics
