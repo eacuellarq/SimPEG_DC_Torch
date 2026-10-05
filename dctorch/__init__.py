@@ -7,7 +7,7 @@ patched. Torch lives entirely inside this package; simpeg/discretize stay numpy.
 Phase 1: sparse direct solver (cuDSS via nvmath) as a torch autograd op.
 """
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.2.0"
 
 from .solver import (CuDSSBatchSolver, CuDSSSolver,  # noqa: F401
                      sparse_solve, sparse_solve_batch)

@@ -20,5 +20,5 @@ keywords:
   - automatic-differentiation
   - gpu
   - geophysical-inversion
-version: 0.1.0
-date-released: 2025-08-01
+version: 0.2.0
+date-released: 2026-10-05
