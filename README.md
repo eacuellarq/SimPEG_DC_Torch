@@ -28,7 +28,6 @@ before using it.
 | Precision | float64 and float32 (float32 is the useful default: half the memory, about half again as fast) |
 | Optimization | `TorchGaussNewton` (2.5-D) and `TorchLBFGS`, both exposed as SimPEG `Optimization`s, so `BetaSchedule`, `TargetMisfit`, `UpdateIRLS` and the other directives run unchanged |
 | Robustness | `StudentTDataMisfit` for a heavy-tailed misfit |
-| Accuracy option | singularity removal in 2.5-D (`singularity_removal=True`, off by default; see `notes/HANDOFF_2026-09-27.md` for where it pays and where it does not) |
 | Wavenumbers | Fitted over the survey's electrode distances with positive weights, 12 by default (`quadrature="electrodes"`, as RES2DINV fits its own). On a 661-measurement field line its forward error against a 31-point reference is 0.0007 % median (SimPEG's own 12: 0.035 %), same inverted model. Fewer points are not equivalent on a real mesh (7 reach 2.5 % forward error), so 12 stays. `quadrature="simpeg"` gives stock SimPEG's points and bit parity; `DCTORCH_QUADRATURE=simpeg` restores that globally, to reproduce results made before this default |
 
 Measured on the regression case in `dctorch/tests/test_simulation2d.py` (2.5-D,
