@@ -14,11 +14,6 @@ wrong with that:
 
 - the range is set by the MESH, so on a padded mesh most of the fitting
   effort goes to distances no electrode pair ever spans;
-- at larger nky the fit becomes ill-conditioned (cond(A^T A) passes 1e17 at
-  nky = 31 on a typical line), `minimize` reports failure, and SimPEG falls
-  back -- with only a warning -- to a trapezoid rule on logspace(-4, 1) that
-  ignores the geometry entirely. Measured: 2.46 % error in 1/r, which is the
-  "nky = 31 degrades to 2.47 %" of notes/HANDOFF_2026-09-27.
 
 `k0_quadrature` fits over the electrode distances of the survey instead (what
 RES2DINV does), solves for g by non-negative least squares, optimizes the
