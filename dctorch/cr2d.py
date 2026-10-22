@@ -2,42 +2,7 @@
 COMPLEX-RESISTIVITY 2.5D forward on GPU — the formulation the industry
 standard actually uses (Kemna 2000; RES2DINV manual eq. 11.6; cR2/CRTomo),
 implemented here as a THIRD forward alongside the linearized `TorchIP2D` and
-the two-state nonlinear `TorchDCIP2D`, so the three can be compared on the
-same mesh, solver and data — which is the point.
-
-    sigma* = sigma_DC * (1 - i*m)          (RES2DINV eq. 11.6, verbatim)
-    A(sigma*) u* = q                       ONE complex solve per wavenumber
-    V* = P sum_j w_j u*_j                  complex voltage
-
-    d_rho = |V*|                           (magnitude -> apparent resistivity)
-    d_ip  = ip_scale * Im(V*)/Re(V*)       ("equivalent apparent chargeability")
-
-On a uniform halfspace V* = G/sigma* gives Im(V*)/Re(V*) = m EXACTLY, for any
-m — an analytic gate no other formulation here gets for free (test_cr2d gate B).
-
-Why this is NOT the same model as `TorchDCIP2D`, despite the identical
-algebra (sigma_DC(1-i*m) vs sigma(1-eta)):
-- this one is exact for a medium whose conductivity IS that complex number at
-  one frequency; the two-state one is exact for the two steady-state limits of
-  a time-domain experiment. They agree to first order and diverge at O(m^2).
-- m here is UNBOUNDED: sigma'' has no hard constraint, so no sigmoid, no
-  vanishing sensitivity at m -> 0 (the measured pathology of the bounded
-  parametrization: eta corr 0.56 vs 0.86 just from the starting value).
-- it can represent NEGATIVE chargeability / EM coupling, which eta in (0,1)
-  structurally cannot.
-Price, measured 2026-07-27: one complex solve costs 1.73x two real ones
-(90k Laplacian, f64 vs c128) and 1.57x the memory.
-
-Implementation notes:
-- the conductivity->matrix-values map L is REAL, so the complex assembly is
-  two REAL sparse matmuls (L@sig_re, L@sig_im) recombined with torch.complex.
-  Same for the real receiver projection P. This avoids complex sparse mm
-  entirely (patchy support) and is cheaper.
-- the solver is cuDSS with matrix_type="symmetric": A^T = A but A^H != A.
-  HERMITIAN would NOT raise and would return a wrong answer.
-
-Model convention: m = cat(m_rho, m_ip) with sigma_DC = exp(-m_rho) and the
-chargeability m = m_ip directly (no transform, no bounds).
+the two-state nonlinear `TorchDCIP2D`
 """
 import numpy as np
 import torch
