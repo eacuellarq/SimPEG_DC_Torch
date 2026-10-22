@@ -1,5 +1,5 @@
 """
-ResInv .dat pipeline for the MAR campaign (port of _gpubench/mar_pipeline.py
+ResInv .dat pipeline for the  campaign (port of _gpubench/_pipeline.py
 to stock simpeg >=0.25 — only the imports changed).
 
 load_line(dat)            -> dict with name, ABMN x-coords, RES, topo interpolator
